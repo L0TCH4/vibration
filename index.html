@@ -159,8 +159,8 @@ function updateState(value) {
 function startVibration() {
   if (vibrationTimer) return;
   vibrationTimer = setInterval(() => {
-    navigator.vibrate(200);
-  }, 200);
+    navigator.vibrate(10000);
+  }, 10000);
 }
 
 function stopVibration() {
