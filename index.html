@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>PeerJS Shared Vibration</title>
+<title>PeerJS 連続振動サーバー</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -17,6 +17,7 @@
     font-size: 1.2em;
     padding: 20px 30px;
     margin: 10px;
+    touch-action: none;
   }
 </style>
 </head>
@@ -32,62 +33,97 @@
 <p id="state">serverState: false</p>
 
 <script>
+/* =====================
+   基本設定
+===================== */
 const HOST_ID = "shared-vibration-host";
-
-let vibrationEnabled = false;
-let vibrating = false;
-let serverState = false;
-
 const isHost = location.hash === "#host";
+
+let serverState = false;
+let vibrationEnabled = false;
+let vibrationTimer = null;
+
 document.getElementById("role").textContent =
   isHost ? "あなたはホストです" : "あなたはクライアントです";
 
+/* =====================
+   PeerJS 初期化
+===================== */
 const peer = new Peer(isHost ? HOST_ID : undefined);
-
 let connections = [];
 let connToHost = null;
 
-/* 振動許可 */
+/* =====================
+   振動有効化
+===================== */
 document.getElementById("enable").onclick = () => {
   vibrationEnabled = true;
   navigator.vibrate(50);
   alert("振動が有効になりました");
 };
 
-/* ホスト処理 */
+/* =====================
+   ホスト処理
+===================== */
 if (isHost) {
   peer.on("connection", conn => {
     connections.push(conn);
+
     conn.on("open", () => {
-      conn.send(serverState);
+      conn.send({ type: "state", value: serverState });
+    });
+
+    conn.on("data", msg => {
+      if (msg.type === "set") {
+        setState(msg.value);
+      }
     });
   });
 }
 
-/* クライアント処理 */
+/* =====================
+   クライアント処理
+===================== */
 if (!isHost) {
   peer.on("open", () => {
     connToHost = peer.connect(HOST_ID);
-    connToHost.on("data", updateState);
+
+    connToHost.on("data", msg => {
+      if (msg.type === "state") {
+        updateState(msg.value);
+      }
+    });
   });
 }
 
-/* 押し続けボタン */
+/* =====================
+   押し続けボタン
+===================== */
 const holdBtn = document.getElementById("hold");
 
 holdBtn.addEventListener("pointerdown", () => {
-  if (isHost) setState(true);
+  sendPress(true);
 });
 
 holdBtn.addEventListener("pointerup", () => {
-  if (isHost) setState(false);
+  sendPress(false);
 });
 
 holdBtn.addEventListener("pointerleave", () => {
-  if (isHost) setState(false);
+  sendPress(false);
 });
 
-/* 状態更新（ホスト） */
+function sendPress(value) {
+  if (isHost) {
+    setState(value);
+  } else if (connToHost && connToHost.open) {
+    connToHost.send({ type: "set", value });
+  }
+}
+
+/* =====================
+   状態管理（ホスト）
+===================== */
 function setState(value) {
   serverState = value;
   broadcast(value);
@@ -95,30 +131,43 @@ function setState(value) {
 }
 
 function broadcast(value) {
-  connections.forEach(c => c.open && c.send(value));
+  connections.forEach(c => {
+    if (c.open) {
+      c.send({ type: "state", value });
+    }
+  });
 }
 
-/* 状態反映（全端末） */
+/* =====================
+   状態反映（全端末）
+===================== */
 function updateState(value) {
   serverState = value;
   document.getElementById("state").textContent =
     "serverState: " + value;
 
-  if (value && vibrationEnabled && !vibrating) {
-    vibrating = true;
-    vibrateLoop();
-  }
-
-  if (!value) {
-    vibrating = false;
-    navigator.vibrate(0);
+  if (value && vibrationEnabled) {
+    startVibration();
+  } else {
+    stopVibration();
   }
 }
 
-function vibrateLoop() {
-  if (!vibrating) return;
-  navigator.vibrate([300]);
-  setTimeout(vibrateLoop, 300);
+/* =====================
+   連続振動制御
+===================== */
+function startVibration() {
+  if (vibrationTimer) return;
+  vibrationTimer = setInterval(() => {
+    navigator.vibrate(200);
+  }, 200);
+}
+
+function stopVibration() {
+  if (!vibrationTimer) return;
+  clearInterval(vibrationTimer);
+  vibrationTimer = null;
+  navigator.vibrate(0);
 }
 </script>
 
