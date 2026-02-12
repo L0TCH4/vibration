@@ -1,93 +1,125 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>Shared Vibration Server</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<title>PeerJS Shared Vibration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      padding-top: 40px;
-    }
-    button {
-      font-size: 1.2em;
-      padding: 20px 30px;
-      margin: 10px;
-    }
-  </style>
+<style>
+  body {
+    font-family: sans-serif;
+    text-align: center;
+    padding-top: 40px;
+  }
+  button {
+    font-size: 1.2em;
+    padding: 20px 30px;
+    margin: 10px;
+  }
+</style>
 </head>
 <body>
 
-  <h1>サーバー振動テスト</h1>
+<h1>共有サーバー状態（PeerJS）</h1>
 
-  <button id="enableVibration">振動を有効化</button><br>
-  <button id="holdButton">押し続ける</button>
+<p id="role"></p>
 
-  <p id="status">serverState: false</p>
+<button id="enable">振動を有効化</button><br>
+<button id="hold">押し続ける</button>
+
+<p id="state">serverState: false</p>
 
 <script>
-  // Firebase設定（要変更）
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT.firebaseio.com",
-    projectId: "YOUR_PROJECT",
-  };
+const HOST_ID = "shared-vibration-host";
 
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
-  const stateRef = db.ref("serverState");
+let vibrationEnabled = false;
+let vibrating = false;
+let serverState = false;
 
-  let vibrationEnabled = false;
-  let vibrating = false;
+const isHost = location.hash === "#host";
+document.getElementById("role").textContent =
+  isHost ? "あなたはホストです" : "あなたはクライアントです";
 
-  document.getElementById("enableVibration").onclick = () => {
-    vibrationEnabled = true;
-    navigator.vibrate(50);
-    alert("振動が有効になりました");
-  };
+const peer = new Peer(isHost ? HOST_ID : undefined);
 
-  const holdBtn = document.getElementById("holdButton");
+let connections = [];
+let connToHost = null;
 
-  holdBtn.addEventListener("pointerdown", () => {
-    stateRef.set(true);
+/* 振動許可 */
+document.getElementById("enable").onclick = () => {
+  vibrationEnabled = true;
+  navigator.vibrate(50);
+  alert("振動が有効になりました");
+};
+
+/* ホスト処理 */
+if (isHost) {
+  peer.on("connection", conn => {
+    connections.push(conn);
+    conn.on("open", () => {
+      conn.send(serverState);
+    });
   });
+}
 
-  holdBtn.addEventListener("pointerup", () => {
-    stateRef.set(false);
+/* クライアント処理 */
+if (!isHost) {
+  peer.on("open", () => {
+    connToHost = peer.connect(HOST_ID);
+    connToHost.on("data", updateState);
   });
+}
 
-  holdBtn.addEventListener("pointerleave", () => {
-    stateRef.set(false);
-  });
+/* 押し続けボタン */
+const holdBtn = document.getElementById("hold");
 
-  stateRef.on("value", snap => {
-    const state = snap.val();
-    document.getElementById("status").textContent =
-      "serverState: " + state;
+holdBtn.addEventListener("pointerdown", () => {
+  if (isHost) setState(true);
+});
 
-    if (state && vibrationEnabled && !vibrating) {
-      vibrating = true;
-      startVibration();
-    }
+holdBtn.addEventListener("pointerup", () => {
+  if (isHost) setState(false);
+});
 
-    if (!state) {
-      vibrating = false;
-      navigator.vibrate(0);
-    }
-  });
+holdBtn.addEventListener("pointerleave", () => {
+  if (isHost) setState(false);
+});
 
-  function startVibration() {
-    if (!vibrating) return;
-    navigator.vibrate([200, 100]);
-    setTimeout(startVibration, 300);
+/* 状態更新（ホスト） */
+function setState(value) {
+  serverState = value;
+  broadcast(value);
+  updateState(value);
+}
+
+function broadcast(value) {
+  connections.forEach(c => c.open && c.send(value));
+}
+
+/* 状態反映（全端末） */
+function updateState(value) {
+  serverState = value;
+  document.getElementById("state").textContent =
+    "serverState: " + value;
+
+  if (value && vibrationEnabled && !vibrating) {
+    vibrating = true;
+    vibrateLoop();
   }
+
+  if (!value) {
+    vibrating = false;
+    navigator.vibrate(0);
+  }
+}
+
+function vibrateLoop() {
+  if (!vibrating) return;
+  navigator.vibrate([300]);
+  setTimeout(vibrateLoop, 300);
+}
 </script>
 
 </body>
